@@ -1,0 +1,82 @@
+# ============================================================================
+# D2 compose workflow -- TEMPLATE / DESIGN, not yet an active workflow.
+# ============================================================================
+# The proven core (real Grafana data -> the typed-primitive interpreter ->
+# snapshot -> rendered PNG) is verified end-to-end (see README "Verified"). This
+# file is the scheduled-refresh plumbing around that core, and it has TWO real
+# integration questions that need a decision before it can go live. They are NOT
+# hidden: authoring a workflow that silently fails validation would be worse.
+#
+# OPEN QUESTION 1 -- cross-repo model.
+#   The grafana model `shrug-grafana` (@keeb/grafana/instance) is defined in the
+#   Infrastructure repo (~/Nextcloud/Space/ShrugPW/Infrastructure/swamp), not
+#   here, and `data.latest` is per-repo. So EITHER:
+#     (a) run this workflow in the Infrastructure repo (add @shrug/polycom-vvx as
+#         a source there so composeIdleSnapshot is callable), OR
+#     (b) create a `shrug-grafana` instance in THIS repo (add the @keeb/grafana
+#         source + the `obs` vault here) and run it here.
+#   Recommendation: (a) -- the grafana creds/vault already live there.
+#
+# OPEN QUESTION 2 -- mapping query outputs to provider dataNames.
+#   `queryMetrics` records its result under an AUTO name `query-<epoch>`, not the
+#   stable `q-up-ready` etc. the providers reference. Options:
+#     (a) reference each step's own produced record by step id in the compose
+#         step's `queryResults` input (preferred if workflow step-output CEL
+#         refs are available -- verify the exact ref syntax);
+#     (b) match provider<->result by the PromQL string (queryResult.content.query
+#         is present) -- would need a small compose-side matcher;
+#     (c) teach @keeb/grafana an optional output-name arg (cross-repo change).
+#   Recommendation: (a). The step shape below assumes (a) and marks the ref TODO.
+#
+# Cadence: a systemd timer / cron triggers `swamp workflow run` every
+# displayConfig.refreshSeconds (30s). The final step writes the snapshot to the
+# daemon's VVX_SNAPSHOT_PATH; the daemon only reads it.
+# ============================================================================
+name: vvx-idle-compose
+description: >-
+  Refresh the VVX idle-screen snapshot: run each provider's Grafana query, then
+  interpret the declarative displayConfig into the {tiles,rows,...} snapshot the
+  render daemon serves. See header for the two go-live integration questions.
+
+steps:
+  # --- one query step per grafana-sourced provider (spec 5.2 + 5.5) ----------
+  - id: q-up-ready
+    model: shrug-grafana
+    method: queryMetrics
+    arguments: {query: 'count(up==1)', start: 5m}
+  - id: q-up-total
+    model: shrug-grafana
+    method: queryMetrics
+    arguments: {query: 'count(up)', start: 5m}
+  - id: q-alerts
+    model: shrug-grafana
+    method: queryMetrics
+    arguments: {query: 'ALERTS{alertstate="firing"}', start: 5m}
+  - id: q-down
+    model: shrug-grafana
+    method: queryMetrics
+    arguments: {query: 'up==0', start: 5m}
+  - id: q-disk
+    model: shrug-grafana
+    method: queryMetrics
+    arguments:
+      query: 'count((node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15)'
+      start: 5m
+
+  # --- interpret the declarative screen into a snapshot ----------------------
+  # composeIdleSnapshot reads providers from the phone instance globalArguments;
+  # `queryResults` maps each provider dataName -> that query's recorded result.
+  # TODO(OPEN QUESTION 2): replace the data.latest placeholders with each step's
+  # OWN produced record ref so 5 concurrent queries don't collide on "latest".
+  - id: compose
+    model: desk-vvx-411
+    method: composeIdleSnapshot
+    dependsOn: [q-up-ready, q-up-total, q-alerts, q-down, q-disk]
+    arguments:
+      snapshotPath: '${XDG_RUNTIME_DIR}/vvx/idle_snapshot.json'
+      queryResults:
+        q-up-ready: '${{ data.latest("shrug-grafana", "<q-up-ready output>").content }}'
+        q-up-total: '${{ data.latest("shrug-grafana", "<q-up-total output>").content }}'
+        q-alerts:   '${{ data.latest("shrug-grafana", "<q-alerts output>").content }}'
+        q-down:     '${{ data.latest("shrug-grafana", "<q-down output>").content }}'
+        q-disk:     '${{ data.latest("shrug-grafana", "<q-disk output>").content }}'

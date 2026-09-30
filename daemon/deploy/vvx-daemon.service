@@ -1,0 +1,51 @@
+[Unit]
+# polycom-vvx render/serve daemon -- the DISPLAY plane of @shrug/polycom-vvx.
+# systemd --user unit (runs as the invoking user; enable linger so it survives
+# logout: `loginctl enable-linger $USER`).
+#
+# This daemon is DUMB about data sources: it reads a pre-computed snapshot
+# JSON file (VVX_SNAPSHOT_PATH below) and renders/serves it. It never queries
+# Grafana/swamp itself and never shells out to `swamp`. That acquisition step
+# is a separate concern: the @shrug/polycom-vvx model extension's
+# composeIdleSnapshot method, run on a cadence by a scheduled swamp workflow,
+# writes the snapshot this daemon reads. Wire that workflow to write to the
+# same path as VVX_SNAPSHOT_PATH in vvx-daemon.env.
+#
+# No secrets belong in this unit or in server.py's config. Phone creds, push
+# creds, and the phone inventory live in the @shrug/polycom-vvx extension's
+# vault-backed globalArguments -- not here. This daemon does not talk to the
+# phone's REST/push API at all; that is the control plane's job.
+#
+# Config (host/port/snapshot path/etc) lives in the gitignored env file next
+# to this unit (vvx-daemon.env, 0600). Source of truth for this unit file
+# lives in the repo; symlink it into ~/.config/systemd/user/vvx-daemon.service.
+Description=polycom-vvx render/serve daemon (display plane only)
+Documentation=file:///home/neil/Nextcloud/ShrugPW/swamp/design/specs/polycom-vvx-extension.spec.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust to your checkout path if this repo lives somewhere else.
+WorkingDirectory=/home/neil/Nextcloud/ShrugPW/swamp/polycom-vvx/daemon
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/neil/Nextcloud/ShrugPW/swamp/polycom-vvx/daemon/deploy/vvx-daemon.env
+ExecStart=/usr/bin/python3 server.py
+Restart=always
+RestartSec=3
+
+# Least-privilege hardening. This daemon only needs: listen on a TCP port,
+# read one JSON file, read font files under the user's home. It never writes
+# anywhere, never execs another process, never needs network egress of its
+# own (it is polled, it does not poll).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home
+# The snapshot dir must be readable; if VVX_SNAPSHOT_PATH lives under
+# XDG_RUNTIME_DIR (the default), that is already writable-by-owner /run/user/<uid>
+# and readable here without an extra ReadWritePaths grant.
+
+[Install]
+WantedBy=default.target

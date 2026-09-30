@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# runtime env file for the systemd --user unit (host/port/snapshot-path config;
+# should not carry secrets, but keep it out of git regardless -- it's local
+# runtime config, not tracked config)
+deploy/vvx-daemon.env
+# local dev snapshot, if you ever point VVX_SNAPSHOT_PATH inside this dir
+idle_snapshot.json

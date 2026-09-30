@@ -1,0 +1,36 @@
+manifestVersion: 1
+name: "@shrug/polycom-vvx"
+version: "2026.09.30.1"
+description: "Polycom VVX phone control + real-data idle display. One model type (@shrug/polycom-vvx/phone) with typed methods 1:1 to the verified REST/push surface (discover, dial, call-forward, config get/set, UI drive, screen capture, reboot) — serialized, dry-run-by-default writes, cert-pinned TLS — plus composeIdleSnapshot, a typed-primitive interpreter that turns declarative providers + recorded Grafana data into the {tiles,rows} snapshot the render daemon serves. Ships its companion render/serve daemon (display plane the phone polls) with token-auth'd endpoints. Vaulted Basic/Digest creds; single injectable fetch seam."
+
+# TODO(publish): confirm the real GitHub URL before the first push.
+repository: https://github.com/shrugpw/swamp-polycom-vvx
+
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+  - daemon/README.md
+
+# The companion render/serve daemon (the DISPLAY plane) ships with the package --
+# the extension is useless without it (the phone polls the daemon for the idle
+# XHTML/PNG the swamp plane composes). Its .py/.service files aren't in the
+# additionalFiles extension allowlist, so they travel as `binaries` (host helpers,
+# exempt from the allowlist, mode-bits preserved, inspect-warned at pull).
+binaries:
+  - daemon/server.py
+  - daemon/screens.py
+  - daemon/deploy/vvx-daemon.service
+
+models:
+  - polycom-vvx.ts
+
+# Empty platforms == universal. Talks HTTPS to the phone REST/push API via
+# fetch(); no host binaries are shelled out, so it runs anywhere.
+platforms: []
+
+labels:
+  - polycom
+  - vvx
+  - phone
+  - telephony
+  - observability
